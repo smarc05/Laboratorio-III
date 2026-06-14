@@ -1,7 +1,8 @@
 /*
  * Informatica II
  * Laboratorio III: Uso de semáforos y pipes entre procesos en Linux
- * Repositorio: <https://github.com/smarc05/Laboratorio-III.git>
+ * Repositorio: https://github.com/smarc05/Laboratorio-III.git
+ * Autores: Ortigosa Laureano, Salas Marcos.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,7 +43,6 @@ void credito(char *archivo_montos, int p[]) // FUNCIÓN DEL PROCESO HIJO CRÉDIT
     }
 
     fclose(archivo);
-
     close(p[1]);
 }
 
@@ -68,7 +68,6 @@ void debito(char *archivo_montos, int p[]) // FUNCIÓN DEL PROCESO HIJO DEBITO
     }
 
     fclose(archivo);
-
     close(p[1]);
 }
 
@@ -81,7 +80,7 @@ int main()
         exit(EXIT_FAILURE);
     }
 
-    memoria_compartida->saldo = 0; //  Inicializamos el saldo en 0.
+    memoria_compartida->saldo = 0; // Inicializamos el saldo en 0.
 
     if (sem_init(&memoria_compartida->semaforo, 1, 1) < 0)
     {
@@ -114,7 +113,6 @@ int main()
     pid_t pid_credito, pid_debito;
 
     pid_credito = fork();
-
     if (pid_credito < 0)
     {
         perror("Error al crear el hijo de Credito.\n");
@@ -129,7 +127,6 @@ int main()
     }
 
     pid_debito = fork();
-
     if (pid_debito < 0)
     {
         perror("Error al crear el hijo de Debito.\n");
@@ -140,41 +137,30 @@ int main()
     else if (pid_debito == 0)
     {
         debito("debito.txt", pipe_debito);
-
         exit(EXIT_SUCCESS);
     }
 
     printf("[Padre] Esperando transacciones de los hijos...\n");
 
+    // El padre cierra sus extremos de escritura para recibir 0 bytes (EOF) cuando los hijos terminen
     close(pipe_credito[1]);
     close(pipe_debito[1]);
 
     float monto_leido;
-    int bytes_credito = 1;
-    int bytes_debito = 1;
 
-    while (bytes_credito > 0 || bytes_debito > 0)
+    // Lee el pipe de crédito de forma síncona hasta recibir 0 bytes (hijo finaliza)
+    while (read(pipe_credito[0], &monto_leido, sizeof(float)) > 0)
     {
-
-        if (bytes_credito > 0)
-        {
-            bytes_credito = read(pipe_credito[0], &monto_leido, sizeof(float));
-            if (bytes_credito > 0)
-            {
-                printf("[Padre] Crédito reporta: +$%.2f\n", monto_leido);
-            }
-        }
-
-        if (bytes_debito > 0)
-        {
-            bytes_debito = read(pipe_debito[0], &monto_leido, sizeof(float));
-            if (bytes_debito > 0)
-            {
-                printf("[Padre] Débito reporta:  -$%.2f\n", monto_leido);
-            }
-        }
+        printf("[Padre] Crédito reporta: +$%.2f\n", monto_leido);
     }
 
+    // Lee el pipe de débito de forma síncona hasta recibir 0 bytes (hijo finaliza)
+    while (read(pipe_debito[0], &monto_leido, sizeof(float)) > 0)
+    {
+        printf("[Padre] Débito reporta:  -$%.2f\n", monto_leido);
+    }
+
+    // El padre espera a que ambos procesos dejen el estado zombie
     wait(NULL);
     wait(NULL);
 
