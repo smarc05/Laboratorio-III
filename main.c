@@ -1,9 +1,8 @@
 /*
- * Informatica II [cite: 1]
- * Laboratorio III: Uso de semáforos y pipes entre procesos en Linux [cite: 4]
- * Repositorio: <https://github.com/smarc05/Laboratorio-III.git> [cite: 7]
+ * Informatica II 
+ * Laboratorio III: Uso de semáforos y pipes entre procesos en Linux 
+ * Repositorio: <https://github.com/smarc05/Laboratorio-III.git> 
  */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -16,8 +15,77 @@
 typedef struct
 {
     int saldo;
-    [cite:13, 36] sem_t semaforo; //  sem_t es una variable diseñada específicamente por el sistema operativo para actuar como un semáforo. [cite: 36]
+    sem_t semaforo; //  sem_t es una variable diseñada específicamente por el sistema operativo para actuar como un semáforo.
 } MemoriaCompartida;
+
+// Declaramos el puntero a la memoria compartida como global para que las
+// funciones credito() y debito() puedan acceder al saldo y al semáforo.
+MemoriaCompartida *memoria_compartida = NULL;
+
+// ----------------------------------------------------------------------------
+// FUNCIÓN DEL PROCESO HIJO CRÉDITO
+// ----------------------------------------------------------------------------
+void credito(char *archivo_montos, int p[]) 
+{
+    // Abrimos el archivo de texto en modo lectura ("r")
+    FILE *archivo = fopen(archivo_montos, "r");
+    if (archivo == NULL) 
+    {
+        perror("Error al abrir el archivo de Credito");
+        exit(EXIT_FAILURE);
+    }
+
+    int monto;
+    // Leemos el archivo línea por línea hasta llegar al final (EOF)
+    while (fscanf(archivo, "%d", &monto) != EOF) 
+    {
+        // --- ENTRADA A LA REGIÓN CRÍTICA ---
+        // Esperamos a que el semáforo esté disponible (exclusión mutua)
+        sem_wait(&memoria_compartida->semaforo);
+
+        // Modificamos la variable compartida sumando el monto
+        memoria_compartida->saldo += monto;
+
+        // --- SALIDA DE LA REGIÓN CRÍTICA ---
+        // Liberamos el semáforo para el otro proceso
+        sem_post(&memoria_compartida->semaforo);
+
+        // (En el Paso 4 enviaremos el monto al padre por el pipe aquí)
+    }
+
+    // Cerramos el archivo al terminar
+    fclose(archivo);
+}
+
+// ----------------------------------------------------------------------------
+// FUNCIÓN DEL PROCESO HIJO DÉBITO
+// ----------------------------------------------------------------------------
+void debito(char *archivo_montos, int p[]) 
+{
+    FILE *archivo = fopen(archivo_montos, "r");
+    if (archivo == NULL) 
+    {
+        perror("Error al abrir el archivo de Debito");
+        exit(EXIT_FAILURE);
+    }
+
+    int monto;
+    while (fscanf(archivo, "%d", &monto) != EOF) 
+    {
+        // --- ENTRADA A LA REGIÓN CRÍTICA ---
+        sem_wait(&memoria_compartida->semaforo);
+
+        // Modificamos la variable compartida restando el monto
+        memoria_compartida->saldo -= monto;
+
+        // --- SALIDA DE LA REGIÓN CRÍTICA ---
+        sem_post(&memoria_compartida->semaforo);
+
+        // (En el Paso 4 enviaremos el monto al padre por el pipe aquí)
+    }
+
+    fclose(archivo);
+}
 
 int main()
 {
@@ -28,14 +96,15 @@ int main()
     //  El -1 es el "Descriptor de Archivo". Como no hay ningún archivo de texto o base de datos conectada a esta memoria, le pasamos -1 para confirmar que no hay archivo.
     //  El 0 es el "Desplazamiento". Si estuvieras leyendo un archivo, esto le dice desde qué byte empezar a leer. Como no hay archivo, arranca en 0.
 
-    MemoriaCompartida *memoria_compartida = mmap(NULL, sizeof(MemoriaCompartida), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    // LINEA CORREGIDA: Se usa la variable global en minúsculas y el tamaño correcto de la estructura en sizeof
+    memoria_compartida = mmap(NULL, sizeof(MemoriaCompartida), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     if (memoria_compartida == MAP_FAILED) // Nota: mmap devuelve MAP_FAILED en caso de error
     {
         perror("Error al crear la memoria compartida.\n");
         exit(EXIT_FAILURE);
     }
 
-    memoria_compartida->saldo = 0; //  Inicializamos el saldo en 0. [cite: 13]
+    memoria_compartida->saldo = 0; //  Inicializamos el saldo en 0.
 
     //  La función sem_init() "enciende" el semáforo y le da sus valores iniciales. Si logra hacerlo bien devuelve un 0, pero si falla por algún motivo, devuelve un -1.
     //  El primer 1 le avisa que este semáforo se va a compartir entre procesos distintos.
@@ -49,19 +118,18 @@ int main()
     }
 
     // ========================================================================
-    // NUEVO: CREACIÓN DE PIPES (Completando Paso 1)
+    // CREACIÓN DE PIPES (Completando Paso 1)
     // ========================================================================
     //  Un pipe (tubería) es un mecanismo de comunicación unidireccional.
     //  Necesita un array de 2 enteros:
     //  - posicion [0]: es el extremo de LECTURA (por donde el padre va a leer).
-    //  - posicion [1]: es el extremo de ESCRITURA (por donde el hijo va a escribir). [cite: 34]
+    //  - posicion [1]: es el extremo de ESCRITURA (por donde el hijo va a escribir).
 
     int pipe_credito[2];
-    [cite:31, 34] int pipe_debito[2];
-    [cite:30, 34]
+    int pipe_debito[2];
 
-        // Creamos el pipe para el proceso de Crédito
-        if (pipe(pipe_credito) < 0)
+    // Creamos el pipe para el proceso de Crédito
+    if (pipe(pipe_credito) < 0)
     {
         perror("Error al crear el pipe de Credito.\n");
         sem_destroy(&memoria_compartida->semaforo);
@@ -81,6 +149,7 @@ int main()
     }
 
     printf("Parte 1 Completada con éxito: Memoria compartida, semáforo y pipes listos.\n");
+    
     // ====================================================
     // PASO 2: CREACIÓN DE LOS PROCESOS HIJOS (fork)
     // ================================================
@@ -96,16 +165,16 @@ int main()
         munmap(memoria_compartida, sizeof(MemoriaCompartida));
         exit(EXIT_FAILURE);
     }
-    else if (pid_credito == 0)
+    else if (pid_credito == 0) 
     {
         // --------------------------------------------------------------------
         // CÓDIGO DEL HIJO CRÉDITO
         // --------------------------------------------------------------------
-        printf("[Hijo Credito] Proceso creado correctamente.\n");
-
-        // En los próximos pasos llamaremos a la función credito() aquí.
-        // Por ahora, simulamos que termina de inmediato de forma limpia.
-        exit(EXIT_SUCCESS);
+        // Llamamos a la función encargada de procesar el archivo de crédito
+        credito("credito.txt", pipe_credito);
+        
+        // Una vez que la función termina de procesar todo, el hijo muere limpiamente
+        exit(EXIT_SUCCESS); 
     }
 
     // Si el flujo sigue por acá, significa que somos el PADRE.
@@ -119,16 +188,16 @@ int main()
         munmap(memoria_compartida, sizeof(MemoriaCompartida));
         exit(EXIT_FAILURE);
     }
-    else if (pid_debito == 0)
+    else if (pid_debito == 0) 
     {
         // --------------------------------------------------------------------
-        // CÓDIGO DEL HIJO DÉBITO
+        // CÓDIGO DEL HIJO DE DÉBITO
         // --------------------------------------------------------------------
-        printf("[Hijo Debito] Proceso creado correctamente.\n");
-
-        // En los próximos pasos llamaremos a la función debito() aquí.
-        // Por ahora, simulamos que termina de inmediato de forma limpia.
-        exit(EXIT_SUCCESS);
+        // Llamamos a la función encargada de procesar el archivo de débito
+        debito("debito.txt", pipe_debito);
+        
+        // Una vez que la función termina de procesar todo, el hijo muere limpiamente
+        exit(EXIT_SUCCESS); 
     }
 
     // ------------------------------------------------------------------------
