@@ -15,8 +15,8 @@
 
 typedef struct
 {
-    int saldo; [cite: 13, 36]
-    sem_t semaforo;     //  sem_t es una variable diseñada específicamente por el sistema operativo para actuar como un semáforo. [cite: 36]
+    int saldo;
+    [cite:13, 36] sem_t semaforo; //  sem_t es una variable diseñada específicamente por el sistema operativo para actuar como un semáforo. [cite: 36]
 } MemoriaCompartida;
 
 int main()
@@ -34,13 +34,13 @@ int main()
         perror("Error al crear la memoria compartida.\n");
         exit(EXIT_FAILURE);
     }
-    
-    memoria_compartida->saldo = 0;  //  Inicializamos el saldo en 0. [cite: 13]
+
+    memoria_compartida->saldo = 0; //  Inicializamos el saldo en 0. [cite: 13]
 
     //  La función sem_init() "enciende" el semáforo y le da sus valores iniciales. Si logra hacerlo bien devuelve un 0, pero si falla por algún motivo, devuelve un -1.
     //  El primer 1 le avisa que este semáforo se va a compartir entre procesos distintos.
     //  El segundo 1 es el valor inicial del semáforo.
-    
+
     if (sem_init(&memoria_compartida->semaforo, 1, 1) < 0)
     {
         perror("Error al inicializar el semaforo.\n");
@@ -51,16 +51,17 @@ int main()
     // ========================================================================
     // NUEVO: CREACIÓN DE PIPES (Completando Paso 1)
     // ========================================================================
-    //  Un pipe (tubería) es un mecanismo de comunicación unidireccional. 
-    //  Necesita un array de 2 enteros: 
+    //  Un pipe (tubería) es un mecanismo de comunicación unidireccional.
+    //  Necesita un array de 2 enteros:
     //  - posicion [0]: es el extremo de LECTURA (por donde el padre va a leer).
     //  - posicion [1]: es el extremo de ESCRITURA (por donde el hijo va a escribir). [cite: 34]
-    
-    int pipe_credito[2]; [cite: 31, 34]
-    int pipe_debito[2]; [cite: 30, 34]
 
-    // Creamos el pipe para el proceso de Crédito
-    if (pipe(pipe_credito) < 0)
+    int pipe_credito[2];
+    [cite:31, 34] int pipe_debito[2];
+    [cite:30, 34]
+
+        // Creamos el pipe para el proceso de Crédito
+        if (pipe(pipe_credito) < 0)
     {
         perror("Error al crear el pipe de Credito.\n");
         sem_destroy(&memoria_compartida->semaforo);
@@ -72,20 +73,85 @@ int main()
     if (pipe(pipe_debito) < 0)
     {
         perror("Error al crear el pipe de Debito.\n");
-        close(pipe_credito[0]); close(pipe_credito[1]);
+        close(pipe_credito[0]);
+        close(pipe_credito[1]);
         sem_destroy(&memoria_compartida->semaforo);
         munmap(memoria_compartida, sizeof(MemoriaCompartida));
         exit(EXIT_FAILURE);
     }
 
-    printf("Paso 1 Completado con éxito: Memoria compartida, semáforo y pipes listos.\n");
+    printf("Parte 1 Completada con éxito: Memoria compartida, semáforo y pipes listos.\n");
+    // ====================================================
+    // PASO 2: CREACIÓN DE LOS PROCESOS HIJOS (fork)
+    // ================================================
+    pid_t pid_credito, pid_debito;
 
-    //  Por ahora cerramos los recursos creados para que el programa termine limpio.
-    //  En los próximos pasos, esta destrucción se moverá al final de la vida del Padre.
-    close(pipe_credito[0]); close(pipe_credito[1]);
-    close(pipe_debito[0]);  close(pipe_debito[1]);
+    // 1. Clonamos el proceso padre para crear al primer hijo (Crédito)
+    pid_credito = fork();
+
+    if (pid_credito < 0)
+    {
+        perror("Error al crear el hijo de Credito.\n");
+        sem_destroy(&memoria_compartida->semaforo);
+        munmap(memoria_compartida, sizeof(MemoriaCompartida));
+        exit(EXIT_FAILURE);
+    }
+    else if (pid_credito == 0)
+    {
+        // --------------------------------------------------------------------
+        // CÓDIGO DEL HIJO CRÉDITO
+        // --------------------------------------------------------------------
+        printf("[Hijo Credito] Proceso creado correctamente.\n");
+
+        // En los próximos pasos llamaremos a la función credito() aquí.
+        // Por ahora, simulamos que termina de inmediato de forma limpia.
+        exit(EXIT_SUCCESS);
+    }
+
+    // Si el flujo sigue por acá, significa que somos el PADRE.
+    // Ahora el padre clona un segundo hijo (Débito)
+    pid_debito = fork();
+
+    if (pid_debito < 0)
+    {
+        perror("Error al crear el hijo de Debito.\n");
+        sem_destroy(&memoria_compartida->semaforo);
+        munmap(memoria_compartida, sizeof(MemoriaCompartida));
+        exit(EXIT_FAILURE);
+    }
+    else if (pid_debito == 0)
+    {
+        // --------------------------------------------------------------------
+        // CÓDIGO DEL HIJO DÉBITO
+        // --------------------------------------------------------------------
+        printf("[Hijo Debito] Proceso creado correctamente.\n");
+
+        // En los próximos pasos llamaremos a la función debito() aquí.
+        // Por ahora, simulamos que termina de inmediato de forma limpia.
+        exit(EXIT_SUCCESS);
+    }
+
+    // ------------------------------------------------------------------------
+    // CONTINUACIÓN DEL PROCESO PADRE
+    // ------------------------------------------------------------------------
+    printf("[Padre] Esperando que los hijos terminen su trabajo...\n");
+
+    // El padre debe esperar a que terminen ambos hijos para que no queden
+    // como "procesos zombi" en el sistema operativo.
+    wait(NULL);
+    wait(NULL);
+
+    // ========================================================================
+    // LIMPIEZA FINAL DE RECURSOS (Movida al final real del programa)
+    // ========================================================================
+    close(pipe_credito[0]);
+    close(pipe_credito[1]);
+    close(pipe_debito[0]);
+    close(pipe_debito[1]);
     sem_destroy(&memoria_compartida->semaforo);
     munmap(memoria_compartida, sizeof(MemoriaCompartida));
+
+    printf("[Padre] Recursos liberados y programa finalizado con éxito.\n");
 
     return 0;
 }
